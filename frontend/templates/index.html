@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loki Vigilant</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Intrusion alert banner -->
+    <div id="intrusion-banner" class="intrusion-banner hidden">
+        <span id="intrusion-banner-text">ACTIVE PORT SCAN DETECTED</span>
+        <button class="banner-dismiss" onclick="dismissBanner()">Dismiss</button>
+    </div>
+
+    <header>
+        <div class="header-content">
+            <h1>Loki Vigilant</h1>
+            <div class="header-info">
+                <span id="network-info" class="badge">--</span>
+                <span id="monitor-status" class="badge badge-inactive">Monitor: Off</span>
+                <span id="device-count" class="badge">Devices: 0</span>
+                <span id="network-packets" class="badge">Pkts: 0</span>
+                <span id="network-bandwidth" class="badge">BW: 0 B</span>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button id="btn-sort-pause" onclick="toggleSortPause()">&#9208; Pause Sort</button>
+            <button id="btn-discover" onclick="runDiscovery()">Scan Network</button>
+        </div>
+    </header>
+
+    <!-- Tab navigation -->
+    <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="devices" onclick="switchTab('devices')">Devices</button>
+        <button class="tab-btn" data-tab="intrusions" onclick="switchTab('intrusions')">
+            Intrusion Log
+            <span id="intrusion-count-badge" class="tab-badge hidden">0</span>
+        </button>
+    </nav>
+
+    <main>
+        <!-- Devices tab -->
+        <section id="tab-devices" class="tab-content active">
+            <table id="devices-table">
+                <thead>
+                    <tr>
+                        <th class="th-expand"></th>
+                        <th>Device</th>
+                        <th>Type</th>
+                        <th>IP Address</th>
+                        <th>1m Activity</th>
+                        <th>First Seen</th>
+                        <th>Last Seen</th>
+                        <th class="th-actions"></th>
+                    </tr>
+                </thead>
+                <tbody id="devices-body">
+                    <tr><td colspan="8" class="empty-state">Click "Scan Network" to discover devices</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Intrusion Log tab -->
+        <section id="tab-intrusions" class="tab-content">
+            <div class="intrusion-stats">
+                <div class="intrusion-stat-card">
+                    <span class="intrusion-stat-label">Total Attempts</span>
+                    <span class="intrusion-stat-value" id="stat-total-attempts">0</span>
+                </div>
+                <div class="intrusion-stat-card">
+                    <span class="intrusion-stat-label">Last Attempt</span>
+                    <span class="intrusion-stat-value" id="stat-last-attempt">Never</span>
+                </div>
+                <div class="intrusion-stat-card">
+                    <span class="intrusion-stat-label">Predicted Next</span>
+                    <span class="intrusion-stat-value" id="stat-predicted-next">--</span>
+                </div>
+                <div class="intrusion-stat-card active-scan-card hidden" id="stat-active-card">
+                    <span class="intrusion-stat-label">Active Scan</span>
+                    <span class="intrusion-stat-value red" id="stat-active-scan">None</span>
+                </div>
+            </div>
+            <table id="intrusions-table">
+                <thead>
+                    <tr>
+                        <th>Source</th>
+                        <th>Scan Type</th>
+                        <th>Verification</th>
+                        <th>Ports Probed</th>
+                        <th>Targets</th>
+                        <th>Started</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody id="intrusions-body">
+                    <tr><td colspan="7" class="empty-state">No intrusion attempts detected yet</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Port Scan Modal -->
+        <div id="scan-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="scan-modal-title">Port Scan Results</h2>
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                </div>
+                <div id="scan-modal-body">
+                    <div class="scan-loading hidden" id="scan-loading">
+                        <div class="spinner"></div>
+                        <p id="scan-stage-message">Initializing scan...</p>
+                        <div id="scan-stages" class="scan-stages"></div>
+                        <p class="scan-hint">This may take 1-3 minutes</p>
+                    </div>
+                    <div id="scan-results"></div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="/static/app.js"></script>
+</body>
+</html>
