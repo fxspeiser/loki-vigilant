@@ -155,6 +155,10 @@ loki-vigilant/
 - All scans are intended for **your own network only** — do not scan networks you don't own or have authorization to test
 - Intrusion detection is passive (monitoring only) and does not block or respond to detected scans
 
+## Author
+
+**Frank Speiser** — [frank.speiser@gmail.com](mailto:frank.speiser@gmail.com)
+
 ## License
 
 MIT
