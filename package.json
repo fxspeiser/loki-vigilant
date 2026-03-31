@@ -1,6 +1,6 @@
 {
   "name": "@fxspeiser/loki-vigilant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Real-time home network security monitor with device discovery, traffic inspection, intrusion detection, and vulnerability scanning",
   "keywords": [
     "network-security",
