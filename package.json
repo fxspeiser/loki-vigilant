@@ -1,0 +1,55 @@
+{
+  "name": "@fxspeiser/loki-vigilant",
+  "version": "1.0.0",
+  "description": "Real-time home network security monitor with device discovery, traffic inspection, intrusion detection, and vulnerability scanning",
+  "keywords": [
+    "network-security",
+    "intrusion-detection",
+    "port-scanner",
+    "nmap",
+    "home-network",
+    "traffic-monitor",
+    "vulnerability-scanner"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fxspeiser/loki-vigilant.git"
+  },
+  "homepage": "https://github.com/fxspeiser/loki-vigilant#readme",
+  "bugs": {
+    "url": "https://github.com/fxspeiser/loki-vigilant/issues"
+  },
+  "bin": {
+    "loki-vigilant": "./bin/loki-vigilant"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js",
+    "setup": "./agent-setup.sh",
+    "start": "./run.sh"
+  },
+  "files": [
+    "app.py",
+    "requirements.txt",
+    "run.sh",
+    "setup.sh",
+    "agent-setup.sh",
+    "backend/*.py",
+    "frontend/",
+    "bin/",
+    "scripts/",
+    "LICENSE",
+    "README.md"
+  ],
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  }
+}

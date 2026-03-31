@@ -1,0 +1,23 @@
+# Exclude private / runtime files from npm package
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.db
+.api_key
+.env
+.env.*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+node_modules/
+*.rpm
+*.tar.gz
+rpmbuild/
+homenet.db
+loki-vigilant.db
+.git/
+.github/

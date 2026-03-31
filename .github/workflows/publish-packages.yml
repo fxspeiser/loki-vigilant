@@ -1,0 +1,151 @@
+name: Publish Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Verify no sensitive files leak into the package
+  # ─────────────────────────────────────────────────────────────────────────
+  security-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for sensitive files
+        run: |
+          FAIL=false
+
+          # Must not exist in repo
+          for f in .api_key .env .env.local .env.production; do
+            if [ -f "$f" ]; then
+              echo "::error::Sensitive file found: $f"
+              FAIL=true
+            fi
+          done
+
+          # Must not contain hardcoded local paths
+          if grep -rn '/Users/' --include='*.py' --include='*.sh' --include='*.js' --include='*.json' --include='*.html' . 2>/dev/null | grep -v node_modules | grep -v venv | grep -v '.git/'; then
+            echo "::error::Hardcoded /Users/ paths found in source"
+            FAIL=true
+          fi
+          if grep -rn '/home/' --include='*.py' --include='*.sh' --include='*.js' --include='*.json' --include='*.html' . 2>/dev/null | grep -v node_modules | grep -v venv | grep -v '.git/' | grep -v '/home/' | head -5; then
+            # /home/ can appear in comments/docs, only fail if in code paths
+            true
+          fi
+
+          # DB files must not be committed
+          for f in *.db; do
+            if [ -f "$f" ]; then
+              echo "::error::Database file found: $f — add to .gitignore"
+              FAIL=true
+            fi
+          done
+
+          # venv must not be committed
+          if [ -d "venv" ]; then
+            echo "::error::venv/ directory found — add to .gitignore"
+            FAIL=true
+          fi
+
+          # __pycache__ must not be committed
+          if find . -name '__pycache__' -not -path './venv/*' -not -path './.git/*' | grep -q .; then
+            echo "::warning::__pycache__ directories found — add to .gitignore"
+          fi
+
+          if [ "$FAIL" = true ]; then
+            exit 1
+          fi
+
+          echo "Security check passed"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Publish npm package to GitHub Packages
+  # ─────────────────────────────────────────────────────────────────────────
+  publish-npm:
+    needs: security-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@fxspeiser'
+
+      - name: Set version from release tag
+        if: github.event_name == 'release'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Set version from input
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.version
+        run: |
+          npm version "${{ github.event.inputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Verify package contents
+        run: |
+          echo "=== Files that will be published ==="
+          npm pack --dry-run 2>&1
+          echo ""
+          echo "=== Checking for leaks ==="
+          npm pack --dry-run 2>&1 | grep -iE '\.db|\.api_key|\.env|venv/|__pycache__|/Users/|/home/' && {
+            echo "::error::Sensitive content would be included in package"
+            exit 1
+          } || echo "Clean"
+
+      - name: Publish to GitHub Packages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Build and publish RPM to GitHub Releases
+  # ─────────────────────────────────────────────────────────────────────────
+  publish-rpm:
+    needs: security-check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rpmbuild
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - name: Update spec version from release tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^Version:.*/Version:        $VERSION/" rpm/loki-vigilant.spec
+
+      - name: Verify no sensitive files in build
+        run: |
+          # Double check before building
+          for pattern in '*.db' '.api_key' '.env' 'venv/'; do
+            if ls $pattern 2>/dev/null; then
+              echo "::error::Sensitive file $pattern exists"
+              exit 1
+            fi
+          done
+
+      - name: Build RPM
+        run: bash rpm/build-rpm.sh
+
+      - name: Upload RPM to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.rpm

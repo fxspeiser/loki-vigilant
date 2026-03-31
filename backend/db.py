@@ -63,10 +63,15 @@ def init_db():
             spoof_status TEXT DEFAULT 'unknown',
             spoof_reasons TEXT DEFAULT '[]'
         );
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
     """)
     # Migrate existing DBs that lack columns
     migrations = [
         ("ALTER TABLE devices ADD COLUMN device_type TEXT DEFAULT ''", None),
+        ("ALTER TABLE devices ADD COLUMN tags TEXT DEFAULT '[]'", None),
         ("ALTER TABLE intrusion_attempts ADD COLUMN hostname TEXT DEFAULT ''", None),
         ("ALTER TABLE intrusion_attempts ADD COLUMN spoof_status TEXT DEFAULT 'unknown'", None),
         ("ALTER TABLE intrusion_attempts ADD COLUMN spoof_reasons TEXT DEFAULT '[]'", None),
@@ -189,11 +194,11 @@ def save_intrusion_attempt(source_ip, scan_type, scan_type_key, ports_hit, targe
     conn.close()
 
 
-def get_intrusion_attempts(limit=100):
+def get_intrusion_attempts(limit=100, offset=0):
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM intrusion_attempts ORDER BY started_at DESC LIMIT ?",
-        (limit,)
+        "SELECT * FROM intrusion_attempts ORDER BY started_at DESC LIMIT ? OFFSET ?",
+        (limit, offset)
     ).fetchall()
     conn.close()
     result = []
@@ -205,6 +210,13 @@ def get_intrusion_attempts(limit=100):
             d['spoof_reasons'] = json.loads(d['spoof_reasons'])
         result.append(d)
     return result
+
+
+def get_intrusion_count():
+    conn = get_conn()
+    total = conn.execute("SELECT COUNT(*) FROM intrusion_attempts").fetchone()[0]
+    conn.close()
+    return total
 
 
 def get_intrusion_stats():
@@ -228,3 +240,72 @@ def get_vulns_for_scan(scan_id):
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# --- Settings ---
+
+def get_setting(key, default=None):
+    conn = get_conn()
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    if row:
+        return row['value']
+    return default
+
+
+def set_setting(key, value):
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value)
+    )
+    conn.commit()
+    conn.close()
+
+
+# --- Device tags ---
+
+def get_device_tags(mac):
+    conn = get_conn()
+    row = conn.execute("SELECT tags FROM devices WHERE mac = ?", (mac,)).fetchone()
+    conn.close()
+    if row and row['tags']:
+        return json.loads(row['tags'])
+    return []
+
+
+def set_device_tags(mac, tags):
+    conn = get_conn()
+    conn.execute("UPDATE devices SET tags = ? WHERE mac = ?", (json.dumps(tags), mac))
+    conn.commit()
+    conn.close()
+
+
+def get_devices_with_tag(tag):
+    """Get all devices that have a specific tag."""
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM devices").fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        tags = json.loads(d.get('tags') or '[]')
+        if tag in tags:
+            result.append(d)
+    return result
+
+
+def get_new_devices(window_seconds=3600):
+    """Get devices first seen within the given window."""
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM devices ORDER BY first_seen DESC").fetchall()
+    conn.close()
+    now = datetime.now()
+    result = []
+    for r in rows:
+        d = dict(r)
+        if d.get('first_seen'):
+            first = datetime.fromisoformat(d['first_seen'])
+            if (now - first).total_seconds() <= window_seconds:
+                result.append(d)
+    return result

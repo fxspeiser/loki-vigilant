@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Loki Vigilant - CLI launcher
+# Installed via: npm install -g @fxspeiser/loki-vigilant
+
+set -euo pipefail
+
+# Resolve the package install directory
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+usage() {
+    echo "Usage: loki-vigilant <command> [options]"
+    echo ""
+    echo "Commands:"
+    echo "  start         Start the dashboard and monitoring services"
+    echo "  setup         Run the interactive setup wizard"
+    echo "  agent-setup   Run automated (non-interactive) setup"
+    echo "  status        Check dependency and service status"
+    echo "  version       Show version"
+    echo ""
+    echo "Options (agent-setup):"
+    echo "  --json        Output machine-readable JSON"
+    echo "  --api-key     Generate an agent API key"
+    echo "  --headless    Install as a background service"
+    echo "  --check       Check dependencies only"
+    echo ""
+    echo "Examples:"
+    echo "  loki-vigilant setup                    # Interactive setup"
+    echo "  loki-vigilant agent-setup --api-key    # Generate API key"
+    echo "  loki-vigilant start                    # Start monitoring"
+}
+
+case "${1:-help}" in
+    start)
+        cd "$SCRIPT_DIR"
+        exec bash run.sh
+        ;;
+    setup)
+        cd "$SCRIPT_DIR"
+        exec bash setup.sh
+        ;;
+    agent-setup)
+        cd "$SCRIPT_DIR"
+        shift
+        exec bash agent-setup.sh "$@"
+        ;;
+    status)
+        cd "$SCRIPT_DIR"
+        exec bash agent-setup.sh --check --json
+        ;;
+    version|-v|--version)
+        node -e "console.log(require('$SCRIPT_DIR/package.json').version)" 2>/dev/null || echo "unknown"
+        ;;
+    help|-h|--help)
+        usage
+        ;;
+    *)
+        echo "Unknown command: $1"
+        echo ""
+        usage
+        exit 1
+        ;;
+esac

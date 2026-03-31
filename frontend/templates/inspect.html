@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traffic Inspector - {{ target_ip }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/inspect.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <a href="/" class="back-link">&larr; Dashboard</a>
+            <h1>Traffic Inspector</h1>
+            <div class="header-info">
+                <span class="badge">{{ target_ip }}</span>
+                {% if device %}
+                <span class="badge">{{ device.nickname or device.hostname or 'Unknown' }}</span>
+                <span class="badge">{{ device.vendor or '' }}</span>
+                {% endif %}
+                <span id="capture-status" class="badge badge-inactive">Stopped</span>
+                <span id="packet-counter" class="badge">Packets: 0</span>
+            </div>
+        </div>
+        <div class="header-actions">
+            <button id="btn-capture" onclick="toggleCapture()">Start Capture</button>
+            <button class="btn-secondary" onclick="clearPackets()">Clear</button>
+            <div class="filter-group">
+                <input type="text" id="filter-input" placeholder="Filter (IP, port, service, content...)" oninput="applyFilter()">
+            </div>
+        </div>
+    </header>
+
+    <main class="inspect-layout">
+        <!-- Left: Peer breakdown -->
+        <aside id="peers-panel" class="peers-panel">
+            <h3>Communicating IPs</h3>
+            <div id="peers-list" class="peers-list">
+                <div class="empty-state-sm">Start capture to see peers</div>
+            </div>
+        </aside>
+
+        <!-- Right: Live packet feed -->
+        <section class="packets-section">
+            <!-- Tabs: Stream / Content -->
+            <nav class="inspect-tabs">
+                <button class="inspect-tab active" data-tab="stream" onclick="switchInspectTab('stream')">Live Stream</button>
+                <button class="inspect-tab" data-tab="content" onclick="switchInspectTab('content')">Content View</button>
+            </nav>
+
+            <!-- Stream tab -->
+            <div id="tab-stream" class="inspect-tab-content active">
+                <table id="packets-table">
+                    <thead>
+                        <tr>
+                            <th class="th-id">#</th>
+                            <th class="th-time">Time</th>
+                            <th class="th-dir">Dir</th>
+                            <th>Source</th>
+                            <th>Destination</th>
+                            <th class="th-proto">Proto</th>
+                            <th class="th-service">Service</th>
+                            <th class="th-len">Length</th>
+                            <th class="th-enc">Enc</th>
+                        </tr>
+                    </thead>
+                    <tbody id="packets-body">
+                        <tr><td colspan="9" class="empty-state">Click "Start Capture" to begin inspecting traffic</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Content tab -->
+            <div id="tab-content" class="inspect-tab-content">
+                <div id="content-view" class="content-view">
+                    <div class="empty-state">Click a packet in the stream to view its content</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Payload modal -->
+    <div id="payload-modal" class="modal hidden">
+        <div class="modal-content payload-modal-content">
+            <div class="modal-header">
+                <h2 id="payload-modal-title">Packet Payload</h2>
+                <button class="modal-close" onclick="closePayloadModal()">&times;</button>
+            </div>
+            <div id="payload-modal-body" class="payload-body">
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+    <script>
+        const TARGET_IP = "{{ target_ip }}";
+        const DEVICE_INFO = {{ device | tojson if device else '{}' }};
+    </script>
+    <script src="/static/inspect.js"></script>
+</body>
+</html>

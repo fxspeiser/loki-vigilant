@@ -9,7 +9,10 @@
 <body>
     <!-- Intrusion alert banner -->
     <div id="intrusion-banner" class="intrusion-banner hidden">
-        <span id="intrusion-banner-text">ACTIVE PORT SCAN DETECTED</span>
+        <div class="banner-body">
+            <span id="intrusion-banner-text">ACTIVE PORT SCAN DETECTED</span>
+            <span id="intrusion-banner-spoof" class="banner-spoof-badge hidden"></span>
+        </div>
         <button class="banner-dismiss" onclick="dismissBanner()">Dismiss</button>
     </div>
 
@@ -27,12 +30,17 @@
         <div class="header-actions">
             <button id="btn-sort-pause" onclick="toggleSortPause()">&#9208; Pause Sort</button>
             <button id="btn-discover" onclick="runDiscovery()">Scan Network</button>
+            <button id="btn-settings" onclick="toggleSettings()">&#9881; Auto-Scan</button>
         </div>
     </header>
 
     <!-- Tab navigation -->
     <nav class="tab-nav">
         <button class="tab-btn active" data-tab="devices" onclick="switchTab('devices')">Devices</button>
+        <button class="tab-btn" data-tab="malicious" onclick="switchTab('malicious')">
+            Malicious Scans
+            <span id="malicious-count-badge" class="tab-badge hidden">0</span>
+        </button>
         <button class="tab-btn" data-tab="intrusions" onclick="switchTab('intrusions')">
             Intrusion Log
             <span id="intrusion-count-badge" class="tab-badge hidden">0</span>
@@ -59,6 +67,39 @@
                     <tr><td colspan="8" class="empty-state">Click "Scan Network" to discover devices</td></tr>
                 </tbody>
             </table>
+        </section>
+
+        <!-- Malicious Scans tab -->
+        <section id="tab-malicious" class="tab-content">
+            <div class="malicious-header">
+                <h2>Detected Malicious Scans</h2>
+                <div class="malicious-pagination">
+                    <button id="malicious-prev" class="btn-secondary btn-page" onclick="maliciousPrev()" disabled>&larr; Prev</button>
+                    <span id="malicious-page-info" class="page-info">Page 1 of 1</span>
+                    <button id="malicious-next" class="btn-secondary btn-page" onclick="maliciousNext()" disabled>Next &rarr;</button>
+                </div>
+            </div>
+            <table id="malicious-table">
+                <thead>
+                    <tr>
+                        <th>Scanning IP</th>
+                        <th>Scan Type</th>
+                        <th>Spoof Status</th>
+                        <th>Ports Probed</th>
+                        <th>Targets</th>
+                        <th>Detected</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody id="malicious-body">
+                    <tr><td colspan="7" class="empty-state">No malicious scans detected yet</td></tr>
+                </tbody>
+            </table>
+            <div class="malicious-pagination malicious-pagination-bottom">
+                <button class="btn-secondary btn-page" onclick="maliciousPrev()" id="malicious-prev-bottom" disabled>&larr; Prev 50</button>
+                <span id="malicious-page-info-bottom" class="page-info"></span>
+                <button class="btn-secondary btn-page" onclick="maliciousNext()" id="malicious-next-bottom" disabled>Next 50 &rarr;</button>
+            </div>
         </section>
 
         <!-- Intrusion Log tab -->
@@ -98,6 +139,51 @@
                 </tbody>
             </table>
         </section>
+
+        <!-- Auto-Scan Settings Panel -->
+        <div id="settings-panel" class="settings-panel hidden">
+            <div class="settings-header">
+                <h3>Auto-Scan Policy</h3>
+                <span class="settings-subtitle">When an intrusion is detected, automatically port-scan:</span>
+            </div>
+            <div class="settings-options">
+                <label class="settings-option">
+                    <input type="radio" name="auto-scan-policy" value="scanners" onchange="setAutoScanPolicy(this.value)">
+                    <div>
+                        <strong>Scanning devices</strong>
+                        <span>Scan all devices when someone scans our network</span>
+                    </div>
+                </label>
+                <label class="settings-option">
+                    <input type="radio" name="auto-scan-policy" value="all" onchange="setAutoScanPolicy(this.value)">
+                    <div>
+                        <strong>All devices</strong>
+                        <span>Scan every device on the network</span>
+                    </div>
+                </label>
+                <label class="settings-option">
+                    <input type="radio" name="auto-scan-policy" value="new" onchange="setAutoScanPolicy(this.value)">
+                    <div>
+                        <strong>New devices</strong>
+                        <span>Only scan devices seen in the last hour</span>
+                    </div>
+                </label>
+                <label class="settings-option">
+                    <input type="radio" name="auto-scan-policy" value="tagged" onchange="setAutoScanPolicy(this.value)">
+                    <div>
+                        <strong>Tagged devices</strong>
+                        <span>Only scan devices tagged with "auto-scan"</span>
+                    </div>
+                </label>
+                <label class="settings-option">
+                    <input type="radio" name="auto-scan-policy" value="none" onchange="setAutoScanPolicy(this.value)">
+                    <div>
+                        <strong>No devices</strong>
+                        <span>Disable auto-scanning entirely</span>
+                    </div>
+                </label>
+            </div>
+        </div>
 
         <!-- Port Scan Modal -->
         <div id="scan-modal" class="modal hidden">

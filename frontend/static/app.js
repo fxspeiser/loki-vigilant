@@ -3,6 +3,10 @@
 const socket = io();
 let devices = [];
 let scanningDevices = new Set();
+// Per-device scan progress: mac -> {stage, message, ip}
+let scanProgress = {};
+// Per-device completed results: mac -> {ip, results}
+let scanCompleted = {};
 let sortPaused = false;
 let renamingMac = null;
 let expandedMacs = new Set();
@@ -13,9 +17,16 @@ const NEW_DEVICE_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
 // Intrusion state
 let intrusionLog = [];
+let intrusionTotal = 0;
 let activeIntrusions = {};
 let bannerDismissed = false;
 let currentTab = 'devices';
+
+// Malicious scans pagination
+let maliciousScans = [];
+let maliciousTotal = 0;
+let maliciousPage = 0;
+const MALICIOUS_PAGE_SIZE = 50;
 
 const DEVICE_TYPE_LABELS = {
     'router': '\u{1F310} Router',
@@ -41,12 +52,16 @@ const SCAN_STAGE_LABELS = {
     'complete': 'Complete',
 };
 
+// Auto-scan state
+let autoScanPolicy = 'scanners';
+
 // --- Init ---
 
 document.addEventListener('DOMContentLoaded', () => {
     fetchNetworkInfo();
     fetchDevices();
     fetchIntrusionLog();
+    fetchAutoScanPolicy();
 });
 
 // --- Tab switching ---
@@ -61,6 +76,9 @@ function switchTab(tab) {
     });
     if (tab === 'intrusions') {
         fetchIntrusionLog();
+    }
+    if (tab === 'malicious') {
+        fetchMaliciousScans(0);
     }
 }
 
@@ -91,12 +109,29 @@ async function fetchNetworkInfo() {
 
 async function fetchIntrusionLog() {
     try {
-        const resp = await fetch('/api/intrusions');
-        intrusionLog = await resp.json();
+        const resp = await fetch('/api/intrusions?limit=200&offset=0');
+        const data = await resp.json();
+        intrusionLog = data.attempts || [];
+        intrusionTotal = data.total || 0;
         renderIntrusionLog();
         updateIntrusionStats();
     } catch (e) {
         console.error('Failed to fetch intrusion log:', e);
+    }
+}
+
+async function fetchMaliciousScans(page) {
+    if (page === undefined) page = maliciousPage;
+    const offset = page * MALICIOUS_PAGE_SIZE;
+    try {
+        const resp = await fetch(`/api/intrusions?limit=${MALICIOUS_PAGE_SIZE}&offset=${offset}`);
+        const data = await resp.json();
+        maliciousScans = data.attempts || [];
+        maliciousTotal = data.total || 0;
+        maliciousPage = page;
+        renderMaliciousScans();
+    } catch (e) {
+        console.error('Failed to fetch malicious scans:', e);
     }
 }
 
@@ -127,9 +162,9 @@ async function runDiscovery() {
 async function startPortScan(ip, mac) {
     if (scanningDevices.has(mac)) return;
     scanningDevices.add(mac);
+    scanProgress[mac] = { stage: 'syn_scan', message: 'Starting scan...', ip };
+    delete scanCompleted[mac];
     renderDevices();
-
-    showScanModal(ip, mac);
 
     try {
         await fetch('/api/scan/ports', {
@@ -140,7 +175,28 @@ async function startPortScan(ip, mac) {
     } catch (e) {
         console.error('Port scan failed:', e);
         scanningDevices.delete(mac);
+        delete scanProgress[mac];
         renderDevices();
+    }
+}
+
+function viewActiveScan(ip, mac) {
+    // Open the modal showing the in-progress scan
+    showScanModal(ip, mac);
+    // Replay current progress state into the modal
+    const prog = scanProgress[mac];
+    if (prog) {
+        const msgEl = document.getElementById('scan-stage-message');
+        const stagesEl = document.getElementById('scan-stages');
+        msgEl.textContent = prog.message;
+        stagesEl.innerHTML = renderScanStages(prog.stage);
+    }
+}
+
+function viewCompletedScan(ip, mac) {
+    const completed = scanCompleted[mac];
+    if (completed) {
+        showScanResults(ip, mac, completed.results);
     }
 }
 
@@ -338,6 +394,7 @@ function renderDnsQueries(dnsQueries) {
 function updateIntrusionBanner() {
     const banner = document.getElementById('intrusion-banner');
     const text = document.getElementById('intrusion-banner-text');
+    const spoofBadge = document.getElementById('intrusion-banner-spoof');
     const activeCount = Object.keys(activeIntrusions).length;
 
     if (activeCount > 0 && !bannerDismissed) {
@@ -348,15 +405,34 @@ function updateIntrusionBanner() {
             return label;
         }).join(', ');
         const types = [...new Set(scans.map(s => s.scan_type))].join(', ');
-        const spoofHints = scans.map(s => {
-            if (s.spoof_status === 'likely_spoofed') return ' [LIKELY SPOOFED]';
-            if (s.spoof_status === 'suspicious') return ' [SUSPICIOUS IP]';
-            return '';
-        }).join('');
-        text.textContent = `ACTIVE PORT SCAN DETECTED \u2014 ${types} from ${sources}${spoofHints}`;
+        text.textContent = `ACTIVE PORT SCAN DETECTED \u2014 ${types} from ${sources}`;
+
+        // Show spoof status badge — pick the most alarming status across active scans
+        const spoofPriority = ['likely_spoofed', 'suspicious', 'unknown', 'verified'];
+        let worstSpoof = 'unknown';
+        for (const prio of spoofPriority) {
+            if (scans.some(s => s.spoof_status === prio)) {
+                worstSpoof = prio;
+                break;
+            }
+        }
+
+        const spoofConfig = {
+            'likely_spoofed': { label: '\u26A0 LIKELY SPOOFED SOURCE', cls: 'banner-spoof-spoofed' },
+            'suspicious':     { label: '? SUSPICIOUS SOURCE', cls: 'banner-spoof-suspicious' },
+            'verified':       { label: '\u2713 VERIFIED SOURCE', cls: 'banner-spoof-verified' },
+            'unknown':        { label: 'UNVERIFIED SOURCE', cls: 'banner-spoof-unknown' },
+        };
+
+        const cfg = spoofConfig[worstSpoof] || spoofConfig['unknown'];
+        spoofBadge.textContent = cfg.label;
+        spoofBadge.className = `banner-spoof-badge ${cfg.cls}`;
+        spoofBadge.classList.remove('hidden');
+
         banner.classList.remove('hidden');
     } else {
         banner.classList.add('hidden');
+        spoofBadge.classList.add('hidden');
     }
 }
 
@@ -436,7 +512,7 @@ function updateIntrusionStats() {
     const lastEl = document.getElementById('stat-last-attempt');
     const predictedEl = document.getElementById('stat-predicted-next');
 
-    totalEl.textContent = intrusionLog.length;
+    totalEl.textContent = intrusionTotal;
 
     if (intrusionLog.length > 0) {
         lastEl.textContent = formatTimestamp(intrusionLog[0].started_at);
@@ -447,11 +523,16 @@ function updateIntrusionStats() {
     // Prediction: average interval between scans
     predictedEl.textContent = predictNextScan();
 
-    // Update badge on tab
+    // Update badge on tabs
     const badge = document.getElementById('intrusion-count-badge');
-    if (intrusionLog.length > 0) {
-        badge.textContent = intrusionLog.length;
+    if (intrusionTotal > 0) {
+        badge.textContent = intrusionTotal;
         badge.classList.remove('hidden');
+    }
+    const malBadge = document.getElementById('malicious-count-badge');
+    if (malBadge && intrusionTotal > 0) {
+        malBadge.textContent = intrusionTotal;
+        malBadge.classList.remove('hidden');
     }
 
     // Active scan card
@@ -468,6 +549,91 @@ function updateIntrusionStats() {
         activeEl.textContent = `${activeCount} from ${sources}`;
     } else {
         activeCard.classList.add('hidden');
+    }
+}
+
+// --- Malicious Scans tab ---
+
+function renderMaliciousScans() {
+    const tbody = document.getElementById('malicious-body');
+
+    const totalPages = Math.max(1, Math.ceil(maliciousTotal / MALICIOUS_PAGE_SIZE));
+    const currentPageDisplay = maliciousPage + 1;
+    const pageText = `Page ${currentPageDisplay} of ${totalPages} (${maliciousTotal} total)`;
+    const hasPrev = maliciousPage > 0;
+    const hasNext = currentPageDisplay < totalPages;
+
+    // Sync both top and bottom pagination
+    for (const suffix of ['', '-bottom']) {
+        const pageInfo = document.getElementById(`malicious-page-info${suffix}`);
+        const prevBtn = document.getElementById(`malicious-prev${suffix}`);
+        const nextBtn = document.getElementById(`malicious-next${suffix}`);
+        if (pageInfo) pageInfo.textContent = pageText;
+        if (prevBtn) prevBtn.disabled = !hasPrev;
+        if (nextBtn) nextBtn.disabled = !hasNext;
+    }
+
+    if (maliciousScans.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No malicious scans detected yet</td></tr>';
+        return;
+    }
+
+    let html = '';
+    for (const a of maliciousScans) {
+        const targets = Array.isArray(a.targets) ? a.targets.join(', ') : a.targets;
+        const started = formatTimestamp(a.started_at);
+        const duration = a.duration_sec ? formatDurationSec(a.duration_sec) : '--';
+        const scanTypeClass = getScanTypeClass(a.scan_type_key || '');
+        const spoofClass = getSpoofClass(a.spoof_status);
+        const spoofLabel = getSpoofLabel(a.spoof_status);
+        const spoofReasons = Array.isArray(a.spoof_reasons) ? a.spoof_reasons : [];
+        const reasonsTooltip = spoofReasons.length > 0
+            ? spoofReasons.map(r => escapeAttr(r)).join('&#10;')
+            : '';
+
+        // Spoof warning row highlight
+        const rowClass = a.spoof_status === 'likely_spoofed' ? 'mal-row-spoofed'
+            : a.spoof_status === 'suspicious' ? 'mal-row-suspicious' : '';
+
+        html += `<tr class="mal-row ${rowClass}">
+            <td>
+                <div class="source-info">
+                    <span class="ip-addr">${escapeHtml(a.source_ip)}</span>
+                    ${a.hostname ? `<span class="source-hostname">${escapeHtml(a.hostname)}</span>` : ''}
+                </div>
+            </td>
+            <td><span class="scan-type-badge ${scanTypeClass}">${escapeHtml(a.scan_type)}</span></td>
+            <td>
+                <span class="spoof-badge ${spoofClass}" ${reasonsTooltip ? `title="${reasonsTooltip}"` : ''}>
+                    ${spoofLabel}
+                </span>
+                ${spoofReasons.length > 0 ? `<div class="spoof-reasons-inline">${spoofReasons.map(r => `<span class="spoof-reason-chip">${escapeHtml(r)}</span>`).join('')}</div>` : ''}
+            </td>
+            <td class="mono">${a.ports_hit || 0}</td>
+            <td><span class="intrusion-targets">${escapeHtml(targets)}</span></td>
+            <td>
+                <div class="mal-time">
+                    <span class="timestamp">${started}</span>
+                    ${a.started_at ? `<span class="mal-date">${new Date(a.started_at).toLocaleDateString(undefined, {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>` : ''}
+                </div>
+            </td>
+            <td>${duration}</td>
+        </tr>`;
+    }
+
+    tbody.innerHTML = html;
+}
+
+function maliciousPrev() {
+    if (maliciousPage > 0) {
+        fetchMaliciousScans(maliciousPage - 1);
+    }
+}
+
+function maliciousNext() {
+    const totalPages = Math.ceil(maliciousTotal / MALICIOUS_PAGE_SIZE);
+    if (maliciousPage + 1 < totalPages) {
+        fetchMaliciousScans(maliciousPage + 1);
     }
 }
 
@@ -588,9 +754,14 @@ function renderDevices() {
         const typeKey = d.device_type || 'unknown';
         const typeLabel = DEVICE_TYPE_LABELS[typeKey] || DEVICE_TYPE_LABELS['unknown'];
 
+        const hasCompleted = !!scanCompleted[d.mac];
+        const prog = scanProgress[d.mac];
+        const scanStageLabel = prog ? (SCAN_STAGE_LABELS[prog.stage] || prog.message) : '';
+
         const rowClasses = ['device-row'];
         if (isExpanded) rowClasses.push('expanded');
         if (newDevice) rowClasses.push('new-device');
+        if (isScanning) rowClasses.push('scanning');
 
         html += `<tr class="${rowClasses.join(' ')}" onclick="toggleExpand('${escapeAttr(d.mac)}')">
             <td style="padding:12px 8px 12px 16px;width:36px">
@@ -602,6 +773,7 @@ function renderDevices() {
                         <span class="${d.nickname ? 'device-nickname' : ''}">${escapeHtml(displayName)}</span>
                         <span class="rename-icon" onclick="event.stopPropagation(); startInlineRename('${escapeAttr(d.mac)}')" title="Rename">&#9998;</span>
                         ${newDevice ? '<span class="new-device-badge">new</span>' : ''}
+                        ${isScanning ? `<span class="scanning-badge" title="${escapeAttr(scanStageLabel)}">scanning</span>` : ''}
                     </div>
                     ${subName ? `<span class="device-hostname">${escapeHtml(subName)}</span>` : ''}
                 </div>
@@ -616,10 +788,30 @@ function renderDevices() {
             <td><span class="timestamp">${formatTimestamp(lastSeen)}</span></td>
             <td>
                 <div class="actions" onclick="event.stopPropagation()">
-                    <button class="action-icon scan-action" onclick="startPortScan('${escapeAttr(d.ip)}', '${escapeAttr(d.mac)}')"
-                        ${isScanning ? 'disabled' : ''} title="${isScanning ? 'Scanning...' : 'Port Scan'}">
-                        ${isScanning ? '&#8987;' : '&#9881;'}
+                    <button class="action-icon inspect-action" onclick="openInspector('${escapeAttr(d.ip)}')"
+                        title="Inspect Live Traffic">
+                        &#9906;
                     </button>
+                    <button class="action-icon tag-action ${(d.tags || []).includes('auto-scan') ? 'tag-active' : ''}"
+                        onclick="toggleAutoScanTag('${escapeAttr(d.mac)}')"
+                        title="${(d.tags || []).includes('auto-scan') ? 'Remove auto-scan tag' : 'Tag for auto-scan'}">
+                        &#9873;
+                    </button>
+                    ${isScanning
+                        ? `<button class="action-icon scan-active-action" onclick="viewActiveScan('${escapeAttr(d.ip)}', '${escapeAttr(d.mac)}')"
+                            title="View scan progress: ${escapeAttr(scanStageLabel)}">
+                            &#9881;
+                          </button>`
+                        : hasCompleted
+                            ? `<button class="action-icon scan-done-action" onclick="viewCompletedScan('${escapeAttr(d.ip)}', '${escapeAttr(d.mac)}')"
+                                title="View scan results">
+                                &#10003;
+                              </button>`
+                            : `<button class="action-icon scan-action" onclick="startPortScan('${escapeAttr(d.ip)}', '${escapeAttr(d.mac)}')"
+                                title="Port Scan">
+                                &#9881;
+                              </button>`
+                    }
                     <button class="action-icon history-action" onclick="viewScanHistory('${escapeAttr(d.ip)}', '${escapeAttr(d.mac)}')" title="Scan History">
                         &#128203;
                     </button>
@@ -831,42 +1023,72 @@ socket.on('traffic_update', (stats) => {
 });
 
 socket.on('scan_progress', (data) => {
-    const msgEl = document.getElementById('scan-stage-message');
-    const stagesEl = document.getElementById('scan-stages');
-    const spinnerEl = document.querySelector('#scan-loading .spinner');
+    // Store progress per device
+    scanProgress[data.mac] = { stage: data.stage, message: data.message, ip: data.ip };
+    renderDevices();
 
-    if (data.stage === 'complete') {
-        // Replace spinner with checkmark
-        if (spinnerEl) spinnerEl.outerHTML = '<div class="scan-done-icon">\u2713</div>';
-        msgEl.textContent = data.message;
-        stagesEl.innerHTML = renderScanStages(data.stage);
-    } else {
-        msgEl.textContent = data.message;
-        stagesEl.innerHTML = renderScanStages(data.stage);
+    // If the modal is open for this device, update it live
+    const modal = document.getElementById('scan-modal');
+    if (!modal.classList.contains('hidden')) {
+        const titleEl = document.getElementById('scan-modal-title');
+        if (titleEl.textContent.includes(data.ip)) {
+            const msgEl = document.getElementById('scan-stage-message');
+            const stagesEl = document.getElementById('scan-stages');
+            const spinnerEl = document.querySelector('#scan-loading .spinner');
+
+            if (data.stage === 'complete') {
+                if (spinnerEl) spinnerEl.outerHTML = '<div class="scan-done-icon">\u2713</div>';
+            }
+            msgEl.textContent = data.message;
+            stagesEl.innerHTML = renderScanStages(data.stage);
+        }
     }
 });
 
 socket.on('scan_complete', (data) => {
     scanningDevices.delete(data.mac);
+    delete scanProgress[data.mac];
+    scanCompleted[data.mac] = { ip: data.ip, results: data.results };
     renderDevices();
-    // Brief pause to show the checkmark, then show results
-    setTimeout(() => {
-        showScanResults(data.ip, data.mac, data.results);
-    }, 800);
+
+    // If the modal is open for this device, show results after brief pause
+    const modal = document.getElementById('scan-modal');
+    if (!modal.classList.contains('hidden')) {
+        const titleEl = document.getElementById('scan-modal-title');
+        if (titleEl.textContent.includes(data.ip)) {
+            setTimeout(() => {
+                showScanResults(data.ip, data.mac, data.results);
+            }, 800);
+        }
+    }
 });
 
 socket.on('scan_error', (data) => {
     scanningDevices.delete(data.mac);
+    scanProgress[data.mac] = { stage: 'error', message: `Scan failed: ${data.error}`, ip: data.ip };
     renderDevices();
-    const spinnerEl = document.querySelector('#scan-loading .spinner');
-    if (spinnerEl) spinnerEl.outerHTML = '<div class="scan-done-icon error">\u2717</div>';
-    document.getElementById('scan-stage-message').textContent = `Scan failed: ${data.error}`;
-    // Also show in results area after a moment
+
+    // Clear error state after a few seconds
     setTimeout(() => {
-        document.getElementById('scan-loading').classList.add('hidden');
-        document.getElementById('scan-results').innerHTML =
-            `<p class="no-ports" style="color: var(--red)">Scan failed: ${escapeHtml(data.error)}</p>`;
-    }, 1500);
+        delete scanProgress[data.mac];
+        renderDevices();
+    }, 5000);
+
+    // If the modal is open for this device, show error
+    const modal = document.getElementById('scan-modal');
+    if (!modal.classList.contains('hidden')) {
+        const titleEl = document.getElementById('scan-modal-title');
+        if (titleEl.textContent.includes(data.ip)) {
+            const spinnerEl = document.querySelector('#scan-loading .spinner');
+            if (spinnerEl) spinnerEl.outerHTML = '<div class="scan-done-icon error">\u2717</div>';
+            document.getElementById('scan-stage-message').textContent = `Scan failed: ${data.error}`;
+            setTimeout(() => {
+                document.getElementById('scan-loading').classList.add('hidden');
+                document.getElementById('scan-results').innerHTML =
+                    `<p class="no-ports" style="color: var(--red)">Scan failed: ${escapeHtml(data.error)}</p>`;
+            }, 1500);
+        }
+    }
 });
 
 // Intrusion events
@@ -880,8 +1102,11 @@ socket.on('intrusion_detected', (data) => {
 socket.on('intrusion_ended', (data) => {
     delete activeIntrusions[data.source_ip];
     updateIntrusionBanner();
-    // Refresh log
+    // Refresh logs
     fetchIntrusionLog();
+    if (currentTab === 'malicious') {
+        fetchMaliciousScans(0);
+    }
 });
 
 socket.on('intrusion_status', (data) => {
@@ -903,6 +1128,79 @@ socket.on('intrusion_status', (data) => {
     if (currentTab === 'intrusions') {
         updateIntrusionStats();
     }
+});
+
+// --- Traffic inspector ---
+
+function openInspector(ip) {
+    window.open(`/inspect/${encodeURIComponent(ip)}`, '_blank');
+}
+
+// --- Auto-scan settings ---
+
+async function fetchAutoScanPolicy() {
+    try {
+        const resp = await fetch('/api/settings/auto-scan');
+        const data = await resp.json();
+        autoScanPolicy = data.policy || 'scanners';
+        updatePolicyRadios();
+    } catch (e) {
+        console.error('Failed to fetch auto-scan policy:', e);
+    }
+}
+
+function updatePolicyRadios() {
+    const radios = document.querySelectorAll('input[name="auto-scan-policy"]');
+    for (const radio of radios) {
+        radio.checked = radio.value === autoScanPolicy;
+    }
+}
+
+function toggleSettings() {
+    const panel = document.getElementById('settings-panel');
+    panel.classList.toggle('hidden');
+}
+
+async function setAutoScanPolicy(policy) {
+    try {
+        await fetch('/api/settings/auto-scan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ policy })
+        });
+        autoScanPolicy = policy;
+    } catch (e) {
+        console.error('Failed to set auto-scan policy:', e);
+    }
+}
+
+// --- Device tags ---
+
+async function toggleAutoScanTag(mac) {
+    const device = devices.find(d => d.mac === mac);
+    if (!device) return;
+
+    const tags = device.tags || [];
+    const hasTag = tags.includes('auto-scan');
+    const newTags = hasTag ? tags.filter(t => t !== 'auto-scan') : [...tags, 'auto-scan'];
+
+    try {
+        await fetch('/api/device/tags', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac, tags: newTags })
+        });
+        device.tags = newTags;
+        renderDevices();
+    } catch (e) {
+        console.error('Failed to update tags:', e);
+    }
+}
+
+// --- Auto-scan events ---
+
+socket.on('auto_scan_triggered', (data) => {
+    console.log(`[auto-scan] Policy '${data.policy}' triggered: ${data.target_count} target(s)`);
 });
 
 // --- Utilities ---
