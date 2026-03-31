@@ -338,6 +338,24 @@ td {
     font-weight: 600;
 }
 
+.device-name .ip-addr {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-dim);
+    margin-top: 2px;
+}
+
+.device-hostname-ip {
+    display: block;
+    font-size: 0.68rem;
+    color: var(--accent);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+}
+
 .timestamp {
     color: var(--text-dim);
     font-size: 0.78rem;

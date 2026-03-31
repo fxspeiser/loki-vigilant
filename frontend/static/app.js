@@ -733,7 +733,7 @@ function renderDevices() {
 
     const tbody = document.getElementById('devices-body');
     if (devices.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Click "Scan Network" to discover devices</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Click "Scan Network" to discover devices</td></tr>';
         return;
     }
 
@@ -745,7 +745,6 @@ function renderDevices() {
     let html = '';
     for (const d of sorted) {
         const displayName = d.nickname || d.hostname || d.ip;
-        const subName = d.nickname ? (d.hostname || d.ip) : '';
         const isScanning = scanningDevices.has(d.mac);
         const isExpanded = expandedMacs.has(d.mac);
         const lastSeen = d.live_last_seen || d.last_seen;
@@ -775,11 +774,11 @@ function renderDevices() {
                         ${newDevice ? '<span class="new-device-badge">new</span>' : ''}
                         ${isScanning ? `<span class="scanning-badge" title="${escapeAttr(scanStageLabel)}">scanning</span>` : ''}
                     </div>
-                    ${subName ? `<span class="device-hostname">${escapeHtml(subName)}</span>` : ''}
+                    <span class="ip-addr">${escapeHtml(d.ip)}</span>
+                    ${d.hostname ? `<span class="device-hostname-ip">${escapeHtml(d.hostname)}</span>` : ''}
                 </div>
             </td>
             <td><span class="device-type type-${typeKey}">${typeLabel}</span></td>
-            <td><span class="ip-addr">${escapeHtml(d.ip)}</span></td>
             <td>
                 <span class="recent-activity">${formatNumber(d.recent_packets || 0)}</span>
                 <span class="recent-bytes">${formatBytes(d.recent_bytes || 0)}</span>
@@ -826,7 +825,7 @@ function renderDevices() {
             const osInfo = d.os || '';
 
             html += `<tr class="detail-row">
-                <td colspan="8">
+                <td colspan="7">
                     <div class="detail-panel">
                         <div class="detail-grid">
                             <div class="detail-stat">
