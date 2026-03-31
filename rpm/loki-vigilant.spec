@@ -75,8 +75,8 @@ LAUNCHER
 chmod 755 %{buildroot}%{_bindir}/%{name}
 
 # Systemd service unit
-install -d %{buildroot}%{_unitdir}
-cat > %{buildroot}%{_unitdir}/%{name}.service << 'SERVICE'
+install -d %{buildroot}/usr/lib/systemd/system
+cat > %{buildroot}/usr/lib/systemd/system/%{name}.service << 'SERVICE'
 [Unit]
 Description=Loki Vigilant - Network Security Monitor
 After=network.target
@@ -132,4 +132,4 @@ systemctl daemon-reload
 %doc README.md
 /opt/%{name}/
 %{_bindir}/%{name}
-%{_unitdir}/%{name}.service
+/usr/lib/systemd/system/%{name}.service
